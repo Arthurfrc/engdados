@@ -1,0 +1,77 @@
+# ██████╗  ██████╗ █████╗
+# ██╔══██╗██╔════╝██╔══██╗
+# ██║  ██║██║     ███████║
+# ██║  ██║██║     ██╔══██║
+# ██████╔╝╚██████╗██║  ██║
+# ╚═════╝  ╚═════╝╚═╝  ╚═╝
+# DEPARTAMENTO DE ENGENHARIA DE COMPUTACAO E AUTOMACAO
+# UNIVERSIDADE FEDERAL DO RIO GRANDE DO NORTE, NATAL/RN
+#
+# (C) 2022-2025 CARLOS M D VIEGAS
+# https://github.com/cmdviegas
+
+name: spark
+
+x-spark-common:
+  &spark-common
+  image: sparkcluster/${IMAGE_NAME}
+  tty: true
+  restart: on-failure
+  entrypoint: ./bootstrap.sh
+  networks:
+    - spark_network
+  volumes:
+  - /home/arthur/Documentos/EngDados/hadoop-spark/myfiles:/home/${USERNAME}/myfiles
+  - /home/arthur/Documentos/EngDados/hadoop-spark/.env:/home/${USERNAME}/.env
+
+services:
+  spark-master:
+    <<: *spark-common
+    container_name: spark-master
+    hostname: spark-master
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        USER: ${USERNAME} # USERNAME (change at .env file)
+        PASS: ${PASSWORD} # USER PASSWORD (change at .env file)
+        SPARK_VER: ${SPARK_VERSION}
+        HADOOP_VER: ${HADOOP_VERSION}
+    ports:
+      - "9870:9870/tcp" # HDFS
+      - "8088:8088/tcp" # YARN
+      - "18080:18080/tcp" # SPARK HISTORY SERVER (SparkUI)
+      - "15002:15002/tcp" # SPARK CONNECT
+    volumes:
+      - master:/home/${USERNAME}/
+    command: MASTER
+    healthcheck:
+      test: bash -c 'ssh -q -o ConnectTimeout=2 ${USERNAME}@spark-master exit'
+      start_period: 5s
+      interval: 2s
+      timeout: 3s
+      retries: 3
+
+  worker:
+    <<: *spark-common
+    deploy:
+      mode: replicated
+      replicas: ${NUM_WORKER_NODES}
+    command: WORKER
+    depends_on:
+      spark-master:
+        condition: service_healthy
+
+networks:
+  spark_network:
+    name: spark_network
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.31.0.0/24
+
+volumes:
+  master:
+    name: master_volume
+    driver: local
